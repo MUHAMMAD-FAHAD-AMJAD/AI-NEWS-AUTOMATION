@@ -368,7 +368,14 @@ baileys-sender/sender.js
 | 2026-06-15 | Phase 6 | message.py (build + validate), formatter/__init__.py, main.py created |
 | 2026-06-15 | Phase 7 | newsbot.yml (hourly cron, Python+Node, 7 secrets) created |
 | 2026-06-15 | Phase 7 | health-check.yml (weekly Monday, session warm-up + error_log) created |
+| 2026-06-15 | Phase 7 FIX | GitHub Actions run #1 failed — 3 issues found and fixed: |
+| 2026-06-15 | Phase 7 FIX | (1) supabase==2.4.0 required httpx<0.26 → upgraded to supabase>=2.7 (resolves to 2.16.0) |
+| 2026-06-15 | Phase 7 FIX | (2) python-dateutil==2.9.0 rejected by mistralai 1.0.0 → loosened to >=2.9.0.post0 |
+| 2026-06-15 | Phase 7 FIX | (3) Action versions updated to Node24: checkout@v4.2.2, setup-python@v5.3.0, setup-node@v4.1.0 |
+| 2026-06-15 | Phase 7 FIX | (4) Removed environment:production — was blocking secret injection (secrets are repo-level) |
+| 2026-06-15 | Phase 7 FIX | (5) Added FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true to suppress Node20 deprecation warning |
+| 2026-06-15 | Phase 7 FIX | Commit 5b5df13 pushed — triggering manual workflow_dispatch run #2 |
 
 ---
 
-*Last updated: Phase 7 complete — awaiting user confirmation before Phase 8.*
+*Last updated: Phase 7 fix pushed (5b5df13) — awaiting Actions run #2 result before Phase 8.*
