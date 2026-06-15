@@ -59,13 +59,13 @@ jobs:
           PAYLOAD_PATH: /tmp/article_payload.json
         run: python orchestrator/main.py
 
-      # ── Step 5: Setup Node.js 20 (only if article ready AND baileys-sender exists) ──
-      - name: Setup Node.js 20
+      # ── Step 5: Setup Node.js 22 (only if article ready AND baileys-sender exists) ──
+      - name: Setup Node.js 22
         if: steps.orchestrator.outputs.has_article == 'true' && hashFiles('baileys-sender/package.json') != ''
         uses: actions/setup-node@v4.1.0
         timeout-minutes: 3
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: baileys-sender/package-lock.json
 
@@ -74,7 +74,7 @@ jobs:
         if: steps.orchestrator.outputs.has_article == 'true' && hashFiles('baileys-sender/package.json') != ''
         working-directory: baileys-sender
         timeout-minutes: 3
-        run: npm ci
+        run: npm ci --prefer-offline
 
       # ── Step 7: Run Baileys Sender ────────────────────────────────────────
       - name: Run Baileys WhatsApp Sender
