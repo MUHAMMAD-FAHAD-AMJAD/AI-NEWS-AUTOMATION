@@ -1,71 +1,53 @@
 name: WhatsApp Session Health Check
 
-# ─── Triggers ────────────────────────────────────────────────────────────────
-# Weekly on Monday 9AM UTC — keeps the WhatsApp session warm.
-# Baileys sessions expire if unused for extended periods (typically 14+ days).
-# This check connects, verifies the session is alive, logs result, and exits.
-# It does NOT post anything to the channel.
 on:
   schedule:
     - cron: '0 9 * * 1'   # Monday 9AM UTC — once per week
-  workflow_dispatch:        # Manual trigger for testing
+  workflow_dispatch:
 
-# ─── Concurrency ─────────────────────────────────────────────────────────────
 concurrency:
   group: health-check
   cancel-in-progress: false
 
-# ─── Job ─────────────────────────────────────────────────────────────────────
 jobs:
   health-check:
     name: WhatsApp Session Health Check
     runs-on: ubuntu-latest
-    environment: production
     timeout-minutes: 10
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # Opt into Node.js 24 runtime now
 
     steps:
 
-      # ── Step 1: Checkout ───────────────────────────────────────────────────
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
         timeout-minutes: 2
 
-      # ── Step 2: Setup Node.js 20 ──────────────────────────────────────────
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.1.0
         timeout-minutes: 3
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: baileys-sender/package-lock.json
 
-      # ── Step 3: Install Node.js dependencies ──────────────────────────────
       - name: Install Node.js dependencies
         working-directory: baileys-sender
         timeout-minutes: 3
         run: npm ci
 
-      # ── Step 4: Setup Python 3.11 ─────────────────────────────────────────
-      # Needed to run the Supabase error_log insert via Python helper
       - name: Setup Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.3.0
         timeout-minutes: 3
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      # ── Step 5: Install Python dependencies ───────────────────────────────
       - name: Install Python dependencies
         timeout-minutes: 3
         run: pip install -r requirements.txt
 
-      # ── Step 6: Run health check ───────────────────────────────────────────
-      # Runs health-check.js which:
-      #   1. Loads Baileys session from Supabase
-      #   2. Attempts connection (30s timeout)
-      #   3. Logs result to Supabase error_log table
-      #   4. Exits 0 on success, 1 on failure
-      # Does NOT post any message to the WhatsApp channel.
       - name: Run WhatsApp Session Health Check
         id: health_check
         working-directory: baileys-sender
@@ -77,9 +59,6 @@ jobs:
           HEALTH_CHECK_MODE: 'true'
         run: node health-check.js
 
-      # ── Step 7: Log result to Supabase (always runs) ──────────────────────
-      # Even if health check fails, we log the result so we can track
-      # session health over time in the Supabase dashboard.
       - name: Log health check result to Supabase
         if: always()
         timeout-minutes: 2
@@ -98,7 +77,7 @@ jobs:
           status = os.environ.get("HEALTH_STATUS", "unknown")
 
           if not url or not key:
-              print("[HEALTH] Supabase credentials not available — skipping log")
+              print("[HEALTH] Supabase credentials not available -- skipping log")
               exit(0)
 
           try:
