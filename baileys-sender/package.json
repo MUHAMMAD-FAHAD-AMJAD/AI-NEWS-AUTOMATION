@@ -1,0 +1,17 @@
+{
+  "name": "baileys-sender",
+  "version": "1.0.0",
+  "description": "WhatsApp Channel sender using Baileys + Supabase session storage",
+  "type": "module",
+  "scripts": {
+    "setup": "node setup/first-time-setup.js",
+    "send":  "node sender.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "latest",
+    "@supabase/supabase-js": "^2.43.0",
+    "dotenv": "^16.4.5",
+    "pino": "^9.0.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
