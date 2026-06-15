@@ -35,13 +35,13 @@ PARAGRAPH_2: {2-3 sentences. Why this matters, who is affected, scale of impact.
 
 PARAGRAPH_3: {2-3 sentences. Broader context, reactions, what comes next.}
 
-POINT_1: {The exact event — one declarative sentence}
+POINT_1: {The exact event — one declarative sentence with specific names and numbers}
 POINT_2: {How it happened — the mechanism or trigger}
-POINT_3: {Who is affected — specific actors}
+POINT_3: {Who is affected — name specific companies, roles, or products}
 POINT_4: {Scale or numbers — if unavailable, write "Scale not yet disclosed"}
 POINT_5: {Key quote or reaction — attribute to role not name}
 
-CONCLUSION: {1-2 sentences. The so-what for the AI world.}
+CONCLUSION: {1 sharp sentence. A non-obvious insight — the real implication for AI builders and founders.}
 
 STRICT RULES:
 - Output ONLY the labeled fields above. Nothing else.
@@ -52,7 +52,16 @@ STRICT RULES:
 - No marketing language ("revolutionary", "game-changing", "unprecedented")
 - If numbers are not in the article, do not invent them
 - If POINT_4 has no data, write: "Scale not yet disclosed"
-- Attribute quotes to role: "Anthropic CEO" not "Dario Amodei\""""
+- Attribute quotes to role: "Anthropic CEO" not "Dario Amodei"
+
+QUALITY RULES — THESE ARE MANDATORY:
+- Every sentence must contain a specific fact: a name, number, dollar amount, date, product name, or company.
+- BANNED phrases (never use): "significant impact", "many businesses", "wide range", "various stakeholders", "it remains to be seen", "the industry", "plays a crucial role", "this highlights", "this underscores", "this move", "going forward".
+- Never state the obvious. Delete any sentence that could appear in ANY article about ANY tech company.
+- PARAGRAPH_1: must name the exact company, person, and product — never "a company" or "an organization".
+- PARAGRAPH_2: must include at least one concrete number, dollar figure, or named competitor. If none exist in the article, state that explicitly.
+- PARAGRAPH_3: must name a specific next step — a timeline, pending decision, regulatory review, or named party's stated next action.
+- CONCLUSION: one sentence only. Must be a sharp, non-obvious strategic insight for AI founders and engineers. Must NOT restate the headline or summary. Must NOT contain "time will tell", "only time", or "remains to be seen"."""
 
 
 def build_user_prompt(article: Article) -> str:
