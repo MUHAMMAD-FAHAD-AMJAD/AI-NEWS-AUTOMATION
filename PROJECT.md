@@ -395,8 +395,13 @@ baileys-sender/sender.js
 | 2026-06-15 | Phase 9 ✅  | Message ID: 3EB031832F7F99F69D30D2 — confirmed in WhatsApp Channel |
 | 2026-06-15 | Phase 10    | package-lock.json committed — enables npm ci in GitHub Actions |
 | 2026-06-15 | Phase 10    | newsbot.yml updated — npm cache restored, sender timeout increased to 4min |
-| 2026-06-15 | Phase 10    | Triggering full end-to-end GitHub Actions run (commit 0e43422) |
+| 2026-06-15 | Phase 10 FIX| Node.js 20 → 22 (Node 22 has native WebSocket for @supabase/realtime-js) |
+| 2026-06-15 | Phase 10 FIX| WhatsApp session expired — cleared Supabase whatsapp_auth, re-paired fresh |
+| 2026-06-15 | Phase 10 ✅ | Run #8: FULLY GREEN — succeeded in 1 minute 47s |
+| 2026-06-15 | Phase 10 ✅ | REAL article posted: "SALESFORCE ACQUIRES FIN FOR $3.6 BILLION" |
+| 2026-06-15 | Phase 10 ✅ | Full pipeline verified: RSS → Filter → Dedup → Groq → Baileys → WhatsApp Channel |
+| 2026-06-15 | 🚀 LIVE     | Bot is IN PRODUCTION — runs every hour via GitHub Actions cron |
 
 ---
 
-*Last updated: Phase 9 local test PASSED. Phase 10 workflow pushed — triggering Actions run.*
+*Last updated: 2026-06-15 — BOT IS LIVE IN PRODUCTION. Phase 10 complete. Starting Phase 11 (hardening).*
