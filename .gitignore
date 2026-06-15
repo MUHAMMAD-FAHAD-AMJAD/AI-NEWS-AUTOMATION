@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.env
+
+# Node
+node_modules/
+baileys-sender/node_modules/
+
+# Secrets — never commit
+.env
+*.json.local
+creds.json
+auth_info_*
+
+# Temp files
+/tmp/
+*.tmp
+article_payload.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
