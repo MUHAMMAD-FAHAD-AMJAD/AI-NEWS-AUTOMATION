@@ -63,6 +63,7 @@ jobs:
         if: always()
         timeout-minutes: 2
         env:
+          PYTHONPATH: ${{ github.workspace }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           HEALTH_STATUS: ${{ steps.health_check.outcome }}
