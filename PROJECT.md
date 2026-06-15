@@ -381,7 +381,11 @@ baileys-sender/sender.js
 | 2026-06-15 | Phase 7 FIX | Removed npm cache from setup-node (package-lock.json not created until Phase 9) |
 | 2026-06-15 | Phase 7 FIX | Run #4: Python ✅, article fetched — npm ci failed: baileys-sender/ dir not found |
 | 2026-06-15 | Phase 7 FIX | Added hashFiles('baileys-sender/package.json') guard to steps 5+6+7 (commit 7c1a712) |
+| 2026-06-15 | Phase 7 ✅  | Run #5: FULLY GREEN — pipeline fetched article, Groq summarized, payload.json written |
+| 2026-06-15 | Bug Fix     | similarity.py: raw SQL '48 hours' → Python datetime.now(utc) - timedelta(hours=48) |
+| 2026-06-15 | Bug Fix     | main.py insert: removed published_at + formatted_message (columns not in schema) |
+| 2026-06-15 | Bug Fix     | 141/141 unit tests still passing after both fixes (commit b72b538) |
 
 ---
 
-*Last updated: Phase 7 final fix pushed (7c1a712) — triggering run #5. Awaiting green result before Phase 8.*
+*Last updated: Phase 7 fully verified (Run #5 GREEN). Both Supabase bugs fixed. Moving to Phase 8.*
