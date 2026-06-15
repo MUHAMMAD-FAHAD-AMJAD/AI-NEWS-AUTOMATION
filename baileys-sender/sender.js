@@ -138,14 +138,16 @@ async function sendArticle() {
 
   sock.ev.on('creds.update', saveCreds)
 
-  // Safety timeout — if no connection within 60s, abort
+  // Safety timeout — if no connection within 90s, abort
   const timeout = setTimeout(async () => {
-    console.error('[TIMEOUT] Could not connect to WhatsApp within 60 seconds.')
-    await markFailed(new Error('Connection timeout after 60s'))
+    console.error('[TIMEOUT] Could not connect to WhatsApp within 90 seconds.')
+    await markFailed(new Error('Connection timeout after 90s'))
     process.exit(1)
-  }, 60_000)
+  }, 90_000)
 
   let sent = false
+  let retries = 0
+  const MAX_RETRIES = 2
 
   sock.ev.on('connection.update', async ({ connection, qr, lastDisconnect }) => {
 
@@ -164,8 +166,11 @@ async function sendArticle() {
       console.log(`[SENDER] Connected to WhatsApp. Browser: ${browser[0]} ${browser[1]}`)
 
       try {
-        // Anti-ban: human delay before sending
-        await humanDelay()
+        // Anti-ban: short delay for Channel posts (2-4s)
+        // Channels are newsletters — shorter delay is safe vs personal chats
+        const delay = 2000 + Math.floor(Math.random() * 2000)
+        console.log(`[ANTI-BAN] Channel delay: ${(delay/1000).toFixed(1)}s...`)
+        await new Promise(r => setTimeout(r, delay))
 
         // Anti-ban: simulate typing
         await simulateComposing(sock, CHANNEL_JID)
@@ -212,8 +217,18 @@ async function sendArticle() {
         await markFailed(new Error('WhatsApp logged out — session invalid'))
         process.exit(1)
       }
-      // Other disconnects: let timeout handle it
-      console.log(`[SENDER] Disconnected (code ${code}) — waiting for reconnect...`)
+      // 408 = connection reset (common during heavy key writes)
+      // Retry automatically up to MAX_RETRIES times
+      if (!sent && retries < MAX_RETRIES) {
+        retries++
+        console.log(`[SENDER] Disconnected (code ${code}) — retry ${retries}/${MAX_RETRIES}...`)
+        setTimeout(() => sendArticle(), 3000)
+      } else if (!sent) {
+        clearTimeout(timeout)
+        console.error(`[SENDER] Max retries reached. Giving up.`)
+        await markFailed(new Error(`WhatsApp disconnected after ${MAX_RETRIES} retries (code ${code})`))
+        process.exit(1)
+      }
     }
   })
 }

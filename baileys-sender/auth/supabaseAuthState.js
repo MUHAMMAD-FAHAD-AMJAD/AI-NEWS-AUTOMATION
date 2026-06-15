@@ -132,12 +132,22 @@ export async function useSupabaseAuthState(supabase) {
       /**
        * Persist Signal keys to Supabase.
        * Called by Baileys after key rotation / new session creation.
+       *
+       * NOTE: lid-mapping keys are WhatsApp contact roster LIDs — they are
+       * regenerated on every connection and do NOT need to be persisted.
+       * Writing them floods Supabase with hundreds of upserts per connection.
        */
       set: async (data) => {
         const writes = []
         for (const type in data) {
+          // Skip lid-mapping — contact roster data, not session keys
+          if (type === 'lid-mapping') continue
+
           for (const id in data[type]) {
             const key = `${type}-${id}`
+            // Also skip any key that starts with lid-mapping (full key form)
+            if (key.startsWith('lid-mapping')) continue
+
             const value = data[type][id]
             if (value) {
               cache[key] = value
