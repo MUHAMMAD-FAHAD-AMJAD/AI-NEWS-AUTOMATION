@@ -386,6 +386,17 @@ baileys-sender/sender.js
 | 2026-06-15 | Bug Fix     | main.py insert: removed published_at + formatted_message (columns not in schema) |
 | 2026-06-15 | Bug Fix     | 141/141 unit tests still passing after both fixes (commit b72b538) |
 
+| 2026-06-15 | Phase 9 ✅  | antiBan.js created — humanDelay, simulateComposing, getRandomBrowser |
+| 2026-06-15 | Phase 9 ✅  | sender.js created — loads session from Supabase, sends to channel, updates post_log |
+| 2026-06-15 | Phase 9 FIX | lid-mapping keys filtered from supabaseAuthState — stopped Supabase flood |
+| 2026-06-15 | Phase 9 FIX | Channel delay reduced to 2-4s (was 10-15s → caused 408 timeout) |
+| 2026-06-15 | Phase 9 FIX | Added retry on 408 disconnect (up to 2 retries) |
+| 2026-06-15 | Phase 9 ✅  | LOCAL TEST PASSED — "Test post from NewsBot Phase 9" delivered to AI News channel |
+| 2026-06-15 | Phase 9 ✅  | Message ID: 3EB031832F7F99F69D30D2 — confirmed in WhatsApp Channel |
+| 2026-06-15 | Phase 10    | package-lock.json committed — enables npm ci in GitHub Actions |
+| 2026-06-15 | Phase 10    | newsbot.yml updated — npm cache restored, sender timeout increased to 4min |
+| 2026-06-15 | Phase 10    | Triggering full end-to-end GitHub Actions run (commit 0e43422) |
+
 ---
 
-*Last updated: Phase 7 fully verified (Run #5 GREEN). Both Supabase bugs fixed. Moving to Phase 8.*
+*Last updated: Phase 9 local test PASSED. Phase 10 workflow pushed — triggering Actions run.*
