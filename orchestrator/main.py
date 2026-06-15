@@ -218,11 +218,11 @@ async def run_pipeline() -> None:
                 "title": article.title,
                 "url": article.url,
                 "source": article.source,
-                "published_at": article.published_at.isoformat(),
+                # fetched_at and created_at default to NOW() — do not pass
                 "status": "PENDING",
                 "llm_provider": summary.llm_provider,
                 "had_image": payload["has_image"],
-                "formatted_message": message,
+                # formatted_message is not a column in the articles table
             },
             on_conflict="hash",
         ).execute()

@@ -24,6 +24,7 @@ SECURITY: Only titles are fetched from DB — no content, no URLs.
 """
 
 import sys
+from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 
 from supabase import Client
@@ -66,10 +67,11 @@ def is_title_duplicate(
         bool: True if duplicate (too similar to recent article), else False.
     """
     try:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
         result = (
             supabase.table("articles")
             .select("title")
-            .gte("fetched_at", "now() - interval '48 hours'")
+            .gte("fetched_at", cutoff.isoformat())
             .in_("status", ["POSTED", "PENDING"])
             .execute()
         )
@@ -118,10 +120,11 @@ def filter_title_duplicates(
     """
     # Fetch all recent titles ONCE
     try:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
         result = (
             supabase.table("articles")
             .select("title")
-            .gte("fetched_at", "now() - interval '48 hours'")
+            .gte("fetched_at", cutoff.isoformat())
             .in_("status", ["POSTED", "PENDING"])
             .execute()
         )
