@@ -375,7 +375,13 @@ baileys-sender/sender.js
 | 2026-06-15 | Phase 7 FIX | (4) Removed environment:production — was blocking secret injection (secrets are repo-level) |
 | 2026-06-15 | Phase 7 FIX | (5) Added FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true to suppress Node20 deprecation warning |
 | 2026-06-15 | Phase 7 FIX | Commit 5b5df13 pushed — triggering manual workflow_dispatch run #2 |
+| 2026-06-15 | Phase 7 FIX | Run #2: PYTHONPATH missing — ModuleNotFoundError for orchestrator package |
+| 2026-06-15 | Phase 7 FIX | Added PYTHONPATH=${{ github.workspace }} to orchestrator step (commit 424790d) |
+| 2026-06-15 | Phase 7 FIX | Run #3: Python ✅ — Node.js setup failed: baileys-sender/package-lock.json missing |
+| 2026-06-15 | Phase 7 FIX | Removed npm cache from setup-node (package-lock.json not created until Phase 9) |
+| 2026-06-15 | Phase 7 FIX | Run #4: Python ✅, article fetched — npm ci failed: baileys-sender/ dir not found |
+| 2026-06-15 | Phase 7 FIX | Added hashFiles('baileys-sender/package.json') guard to steps 5+6+7 (commit 7c1a712) |
 
 ---
 
-*Last updated: Phase 7 fix pushed (5b5df13) — awaiting Actions run #2 result before Phase 8.*
+*Last updated: Phase 7 final fix pushed (7c1a712) — triggering run #5. Awaiting green result before Phase 8.*
