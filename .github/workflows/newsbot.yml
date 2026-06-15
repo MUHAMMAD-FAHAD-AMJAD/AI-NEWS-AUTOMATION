@@ -66,6 +66,8 @@ jobs:
         timeout-minutes: 3
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: baileys-sender/package-lock.json
 
       # ── Step 6: Install Node.js dependencies ──────────────────────────────
       - name: Install Node.js dependencies
@@ -78,7 +80,7 @@ jobs:
       - name: Run Baileys WhatsApp Sender
         if: steps.orchestrator.outputs.has_article == 'true' && hashFiles('baileys-sender/package.json') != ''
         working-directory: baileys-sender
-        timeout-minutes: 3
+        timeout-minutes: 4
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
