@@ -157,7 +157,7 @@ def filter_title_duplicates(
     """
     now = datetime.now(timezone.utc)
     cutoff_48h = now - timedelta(hours=48)
-    cutoff_6h  = now - timedelta(hours=6)
+    cutoff_3h  = now - timedelta(hours=3)   # Reduced from 6h — 6h was too aggressive
 
     # ── Fetch 48-hour titles for SequenceMatcher ──────────────────────
     try:
@@ -173,42 +173,46 @@ def filter_title_duplicates(
         print(f"[WARN] [dedup] 48h fetch failed: {e}", file=sys.stderr)
         titles_48h = []
 
-    # ── Fetch 6-hour titles for topic clustering ──────────────────────
+    # ── Fetch 3-hour titles for topic clustering ─────────────────
     try:
-        result_6h = (
+        result_3h = (
             supabase.table("articles")
             .select("title")
-            .gte("fetched_at", cutoff_6h.isoformat())
+            .gte("fetched_at", cutoff_3h.isoformat())
             .in_("status", ["POSTED", "PENDING"])
             .execute()
         )
-        titles_6h = [r["title"] for r in result_6h.data if r.get("title")]
+        titles_3h = [r["title"] for r in result_3h.data if r.get("title")]
     except Exception as e:
-        print(f"[WARN] [dedup] 6h fetch failed: {e}", file=sys.stderr)
-        titles_6h = []
+        print(f"[WARN] [dedup] 3h fetch failed: {e}", file=sys.stderr)
+        titles_3h = []
 
     unique = []
     similar = []
+    rejected_by_similarity = 0
+    rejected_by_topic = 0
 
     for article in articles:
         is_dup = False
 
-        # ── Check A: SequenceMatcher (48h window) ─────────────────────
+        # ── Check A: SequenceMatcher (48h window) ────────────────────
         for existing_title in titles_48h:
             ratio = _similarity_ratio(article.title, existing_title)
             if ratio >= threshold:
                 print(
-                    f"[DEDUP L2] {ratio:.2f} similarity — "
+                    f"[DEDUP L2-SIM] {ratio:.2f} similarity — "
                     f"REJECT: {article.title[:50]!r}"
                 )
                 is_dup = True
+                rejected_by_similarity += 1
                 break
 
-        # ── Check B: Topic clustering (6h window) ─────────────────────
+        # ── Check B: Topic clustering (3h window) ───────────────────
         # Only run if article passed Check A — no double-counting
         if not is_dup:
-            if _is_topic_duplicate(article.title, titles_6h):
+            if _is_topic_duplicate(article.title, titles_3h):
                 is_dup = True
+                rejected_by_topic += 1
 
         if is_dup:
             similar.append(article)
@@ -216,13 +220,13 @@ def filter_title_duplicates(
             unique.append(article)
             # Add to both in-memory lists so within-batch duplicates are caught
             titles_48h.append(article.title)
-            titles_6h.append(article.title)
+            titles_3h.append(article.title)
 
-    if similar:
-        print(
-            f"[DEDUP L2] {len(unique)} unique, "
-            f"{len(similar)} duplicates removed (similarity + topic)"
-        )
+    print(
+        f"[DEDUP L2] {len(unique)} unique, "
+        f"{len(similar)} rejected "
+        f"(similarity={rejected_by_similarity}, topic_cluster={rejected_by_topic})"
+    )
 
     return unique, similar
 

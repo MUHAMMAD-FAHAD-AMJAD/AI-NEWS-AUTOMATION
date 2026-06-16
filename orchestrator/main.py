@@ -174,7 +174,18 @@ async def run_pipeline() -> None:
     print(f"[DEDUP] {len(candidates)}/{len(filtered)} articles are new (post-dedup)")
 
     if not candidates:
-        print("[DONE] No new unique articles this run.")
+        # Log why we're exiting — critical for gap diagnosis
+        print(
+            f"[DONE] 0 candidates after full pipeline: "
+            f"fetched={len(articles)}, "
+            f"passed_filters={len(filtered)}, "
+            f"post_dedup=0. "
+            f"Likely cause: all {len(filtered)} articles are URL dupes or "
+            f"title/topic duplicates of recent posts. "
+            f"Top rejected titles:"
+        )
+        for a in filtered[:3]:
+            print(f"  - {a.title[:70]!r}")
         set_gh_output("has_article", "false")
         return
 

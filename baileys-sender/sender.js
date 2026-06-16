@@ -27,6 +27,8 @@ import { createClient } from '@supabase/supabase-js'
 import { useSupabaseAuthState } from './auth/supabaseAuthState.js'
 import { humanDelay, simulateComposing, getRandomBrowser } from './utils/antiBan.js'
 import { readFileSync, existsSync } from 'fs'
+import https from 'https'
+import http from 'http'
 import pino from 'pino'
 import { Boom } from '@hapi/boom'
 
@@ -119,6 +121,66 @@ async function markFailed(err) {
   console.error('[DB] Article marked FAILED, error logged.')
 }
 
+// ─── Image buffer downloader ──────────────────────────────────────────────────
+
+/**
+ * Download an image URL to a Buffer.
+ * WhatsApp newsletter channels silently drop image+URL messages.
+ * Sending a Buffer instead of { url } works correctly for newsletters.
+ *
+ * @param {string} imageUrl  HTTPS URL of the image to fetch
+ * @param {number} timeoutMs Timeout in milliseconds (default 15s)
+ * @returns {Promise<Buffer|null>} Image buffer, or null on any failure
+ */
+function downloadImageBuffer(imageUrl, timeoutMs = 15_000) {
+  return new Promise((resolve) => {
+    const protocol = imageUrl.startsWith('https') ? https : http
+    const req = protocol.get(
+      imageUrl,
+      {
+        timeout: timeoutMs,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'image/*,*/*;q=0.8',
+        },
+      },
+      (res) => {
+        // Follow redirects (up to 3)
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+          console.log(`[IMAGE] Redirect ${res.statusCode} -> ${res.headers.location.slice(0, 60)}`)
+          downloadImageBuffer(res.headers.location, timeoutMs).then(resolve)
+          return
+        }
+        if (res.statusCode !== 200) {
+          console.error(`[IMAGE] Download failed: HTTP ${res.statusCode}`)
+          resolve(null)
+          return
+        }
+        const chunks = []
+        res.on('data', chunk => chunks.push(chunk))
+        res.on('end', () => {
+          const buf = Buffer.concat(chunks)
+          console.log(`[IMAGE] Downloaded ${(buf.length / 1024).toFixed(1)} KB`)
+          resolve(buf)
+        })
+        res.on('error', (e) => {
+          console.error(`[IMAGE] Stream error: ${e.message}`)
+          resolve(null)
+        })
+      }
+    )
+    req.on('timeout', () => {
+      req.destroy()
+      console.error('[IMAGE] Download timeout')
+      resolve(null)
+    })
+    req.on('error', (e) => {
+      console.error(`[IMAGE] Request error: ${e.message}`)
+      resolve(null)
+    })
+  })
+}
+
 // ─── Main send flow ───────────────────────────────────────────────────────────
 
 async function sendArticle() {
@@ -178,27 +240,33 @@ async function sendArticle() {
         await simulateComposing(sock, CHANNEL_JID)
 
         // ── Send message ─────────────────────────────────────────────────
-        // NOTE: WhatsApp newsletter channels (@newsletter JID) silently drop
-        // image+caption messages sent via the standard sendMessage() API.
-        // Baileys returns a success message ID but the post never appears.
-        // Text-only is confirmed working for @newsletter channels.
-        // Image support for newsletters requires a different Baileys API path
-        // that varies by version and is not stable in CI environments.
+        // Strategy:
+        //   1. If has_image + @newsletter JID: download image to buffer,
+        //      send as { image: buffer, caption }. Buffer sends work for
+        //      newsletters; URL-based sends are silently dropped by WA server.
+        //   2. If buffer download fails: fall back to text-only.
+        //   3. If no image: send text-only directly.
         let result
         const isNewsletterJid = CHANNEL_JID.endsWith('@newsletter')
 
-        if (payload.has_image && payload.og_image_url && !isNewsletterJid) {
-          console.log('[SEND] Sending image + caption...')
-          result = await sock.sendMessage(CHANNEL_JID, {
-            image:   { url: payload.og_image_url },
-            caption: payload.formatted_message,
-          })
-        } else {
-          if (isNewsletterJid && payload.has_image) {
-            console.log('[SEND] Newsletter channel — skipping image (would be silently dropped). Sending text only.')
+        if (payload.has_image && payload.og_image_url) {
+          console.log(`[IMAGE] Downloading image buffer for channel post...`)
+          const imgBuffer = await downloadImageBuffer(payload.og_image_url)
+
+          if (imgBuffer && imgBuffer.length > 0) {
+            console.log('[SEND] Sending image (buffer) + caption...')
+            result = await sock.sendMessage(CHANNEL_JID, {
+              image:   imgBuffer,
+              caption: payload.formatted_message,
+            })
           } else {
-            console.log('[SEND] Sending text only (no OG image)...')
+            console.log('[SEND] Image download failed — falling back to text only.')
+            result = await sock.sendMessage(CHANNEL_JID, {
+              text: payload.formatted_message,
+            })
           }
+        } else {
+          console.log('[SEND] Sending text only (no image available)...')
           result = await sock.sendMessage(CHANNEL_JID, {
             text: payload.formatted_message,
           })
