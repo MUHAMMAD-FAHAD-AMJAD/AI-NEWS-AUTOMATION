@@ -27,16 +27,17 @@ class Config:
     openrouter_api_key: str
     gemini_api_key: str
     whatsapp_channel_jid: str
-    max_posts_per_day: int = 5
+    max_posts_per_day: int = 5  # DEPRECATED — kept for backwards compat; not used
+    min_minutes_between_posts: int = 45
     poll_lookback_hours: int = 24
-    similarity_threshold: float = 0.75
+    similarity_threshold: float = 0.85
 
     def __repr__(self) -> str:
         """Safe repr — never exposes secret values."""
         return (
             f"Config("
             f"supabase_url={self.supabase_url[:30]}..., "
-            f"max_posts_per_day={self.max_posts_per_day}, "
+            f"min_minutes_between_posts={self.min_minutes_between_posts}, "
             f"poll_lookback_hours={self.poll_lookback_hours}, "
             f"similarity_threshold={self.similarity_threshold}"
             f")"

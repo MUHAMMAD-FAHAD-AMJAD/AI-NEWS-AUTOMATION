@@ -29,7 +29,7 @@ import json
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from supabase import create_client
@@ -52,25 +52,35 @@ PAYLOAD_PATH = os.environ.get("PAYLOAD_PATH", "/tmp/article_payload.json")
 # Daily Cap Helper                                                     #
 # ------------------------------------------------------------------ #
 
-def get_posts_today(supabase) -> int:
+def get_last_post_time(supabase):
     """
-    Count articles posted today (UTC) with status SENT.
+    Return the posted_at timestamp of the most recently POSTED article.
 
-    Returns 0 on any DB error — fail-open so pipeline doesn't stall.
+    Returns None if no articles posted yet, or on any DB error.
+    Fail-open: if DB is unreachable, we allow the post.
     """
     try:
-        today_start = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT00:00:00+00:00")
         result = (
             supabase.table("articles")
-            .select("hash", count="exact")
-            .eq("status", "SENT")
-            .gte("created_at", today_start)
+            .select("posted_at")
+            .eq("status", "POSTED")
+            .order("posted_at", desc=True)
+            .limit(1)
             .execute()
         )
-        return result.count or 0
+        if result.data:
+            posted_at_str = result.data[0].get("posted_at")
+            if posted_at_str:
+                return datetime.fromisoformat(
+                    posted_at_str.replace("Z", "+00:00")
+                )
+        return None
     except Exception as e:
-        print(f"[CAP] DB query failed: {type(e).__name__} — assuming 0 posts today", file=sys.stderr)
-        return 0
+        print(
+            f"[THROTTLE] DB query failed: {type(e).__name__} — allowing post",
+            file=sys.stderr,
+        )
+        return None
 
 
 # ------------------------------------------------------------------ #
@@ -110,14 +120,25 @@ async def run_pipeline() -> None:
     supabase = create_client(config.supabase_url, config.supabase_key)
     print(f"[RUN {run_id}] Config loaded. DB connected.")
 
-    # ── Phase 3 (pre-fetch): Daily cap check ─────────────────────────
-    posts_today = get_posts_today(supabase)
-    if posts_today >= config.max_posts_per_day:
-        print(f"[CAP] Daily cap reached ({posts_today}/{config.max_posts_per_day}). Exiting.")
-        set_gh_output("has_article", "false")
-        return
-
-    print(f"[CAP] Posts today: {posts_today}/{config.max_posts_per_day}")
+    # ── Phase 3 (pre-fetch): 45-minute throttle check ─────────────────
+    last_post_time = get_last_post_time(supabase)
+    if last_post_time is not None:
+        elapsed = datetime.now(tz=timezone.utc) - last_post_time
+        min_gap = timedelta(minutes=config.min_minutes_between_posts)
+        if elapsed < min_gap:
+            remaining = int((min_gap - elapsed).total_seconds() / 60)
+            print(
+                f"[THROTTLE] Last post was {int(elapsed.total_seconds()/60)}m ago — "
+                f"minimum {config.min_minutes_between_posts}m required. "
+                f"Skip ({remaining}m remaining)."
+            )
+            set_gh_output("has_article", "false")
+            return
+        print(
+            f"[THROTTLE] Last post: {int(elapsed.total_seconds()/60)}m ago — OK to post."
+        )
+    else:
+        print("[THROTTLE] No previous posts found — OK to post.")
 
     # ── Phase 2: Fetch articles ───────────────────────────────────────
     print(f"[FETCH] Fetching articles from all sources...")
@@ -161,11 +182,14 @@ async def run_pipeline() -> None:
     article = candidates[0]
     print(f"[ARTICLE] Processing: {article.title[:60]}")
 
-    # ── Phase 4: OG Image ─────────────────────────────────────────────
+    # ── Phase 4: OG Image (HTTP + RSS fallback) ─────────────────────
     print(f"[IMAGE] Extracting OG image...")
     og_image_url = await extract_og_image(article.url)
     if og_image_url:
-        print(f"[IMAGE] Found OG image")
+        print(f"[IMAGE] Found OG image via HTTP meta tags")
+    elif article.rss_image_url:
+        og_image_url = article.rss_image_url
+        print(f"[IMAGE] Found image via RSS media tag (fallback)")
     else:
         print(f"[IMAGE] No OG image found — will post text-only")
 

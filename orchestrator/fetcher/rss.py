@@ -125,6 +125,66 @@ def _parse_published(entry: feedparser.FeedParserDict) -> Optional[datetime]:
         return None
 
 
+
+# ------------------------------------------------------------------ #
+# RSS Media Image Extractor                                            #
+# ------------------------------------------------------------------ #
+
+def _extract_rss_image(entry: feedparser.FeedParserDict) -> 'Optional[str]':
+    """
+    Extract an image URL from RSS feed entry media tags.
+
+    Checks in priority order:
+      1. media:content with medium='image'
+      2. media:thumbnail
+      3. enclosure with image MIME type
+      4. media:content (any, first entry)
+
+    Returns None if no valid image URL found.
+    Never raises — errors return None silently.
+
+    This avoids HTTP fetching the article page entirely — the image
+    is embedded directly in the RSS feed XML.
+    """
+    try:
+        # ── 1. media:content ────────────────────────────────────────
+        media_content = getattr(entry, 'media_content', []) or []
+        for media in media_content:
+            url = media.get('url', '')
+            if url and url.startswith('http'):
+                medium = media.get('medium', '')
+                if medium == 'image' or any(
+                    ext in url.lower()
+                    for ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+                ):
+                    return url
+        # Fallback: any media:content URL
+        for media in media_content:
+            url = media.get('url', '')
+            if url and url.startswith('http'):
+                return url
+
+        # ── 2. media:thumbnail ──────────────────────────────────────
+        media_thumbnail = getattr(entry, 'media_thumbnail', []) or []
+        for thumb in media_thumbnail:
+            url = thumb.get('url', '')
+            if url and url.startswith('http'):
+                return url
+
+        # ── 3. enclosure (podcast/image attachments) ────────────────
+        enclosures = getattr(entry, 'enclosures', []) or []
+        for enc in enclosures:
+            url = enc.get('url', '') or enc.get('href', '')
+            mime = enc.get('type', '')
+            if url and url.startswith('http') and 'image' in mime:
+                return url
+
+    except Exception:
+        pass  # Never block pipeline over missing image
+
+    return None
+
+
 # ------------------------------------------------------------------ #
 # Single-feed fetcher                                                  #
 # ------------------------------------------------------------------ #
@@ -193,6 +253,9 @@ async def _fetch_single_feed(feed_cfg: dict) -> List[Article]:
                     )
                     continue
 
+                # --- Extract RSS media image (no HTTP fetch needed) ---
+                rss_image_url = _extract_rss_image(entry)
+
                 article = Article(
                     title=title,
                     url=link,
@@ -200,6 +263,7 @@ async def _fetch_single_feed(feed_cfg: dict) -> List[Article]:
                     published_at=published_at,
                     source=source,
                 )
+                article.rss_image_url = rss_image_url
                 articles.append(article)
 
             except ValueError as ve:

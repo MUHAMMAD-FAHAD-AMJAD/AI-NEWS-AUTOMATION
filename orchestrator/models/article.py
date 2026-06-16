@@ -50,6 +50,10 @@ class Article:
     # Set downstream by og_image extractor (Phase 4)
     og_image_url: Optional[str] = None
 
+    # Set during RSS fetch from media:content or enclosure tags
+    # Used as fallback if HTTP OG extraction fails (many sites block bots)
+    rss_image_url: Optional[str] = None
+
     # ------------------------------------------------------------------ #
     # Lifecycle                                                            #
     # ------------------------------------------------------------------ #
