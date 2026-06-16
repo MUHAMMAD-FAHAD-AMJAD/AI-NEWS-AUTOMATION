@@ -20,8 +20,10 @@
 | **Supabase URL** | `https://aqrdhxcrhwvcuasqinis.supabase.co` |
 | **WhatsApp Channel** | `https://whatsapp.com/channel/0029Vb7saIyBfxo16VOMZj3x` |
 | **WhatsApp JID** | ⚠️ `PLACEHOLDER_FILL_IN_PHASE_8` |
-| **GitHub Actions cron** | `*/30 * * * *` (every 30 min) |
-| **Daily post cap** | 5 posts per 24-hour window |
+| **GitHub Actions cron** | `0 * * * *` (every hour) |
+| **Post throttle** | 45-minute minimum gap between posts (replaces daily cap) |
+| **Similarity threshold** | 0.85 (SequenceMatcher, 48h window) |
+| **Topic cluster window** | 3h (keyword overlap ≥ 2, blocks same-topic flood) |
 
 ---
 
@@ -37,9 +39,10 @@
 | **Phase 6** | Message Formatter + Payload Writer | ✅ COMPLETE | ✅ 33/33 unit tests passing |
 | **Phase 7** | GitHub Actions Workflow | ✅ COMPLETE | ✅ 2 workflow files created |
 | **Phase 8** | Baileys WhatsApp Session Setup | ⏳ PENDING | — |
-| **Phase 9** | Baileys Sender + Supabase Auth State | ⏳ PENDING | — |
-| **Phase 10** | End-to-End Integration + Anti-Ban | ⏳ PENDING | — |
-| **Phase 11** | Production Hardening + Monitoring | ⏳ PENDING | — |
+| **Phase 8** | Baileys WhatsApp Session Setup | ✅ COMPLETE | — |
+| **Phase 9** | Baileys Sender + Supabase Auth State | ✅ COMPLETE | ✅ 157 tests passing |
+| **Phase 10** | End-to-End Integration + Anti-Ban | ✅ COMPLETE | ✅ First live post delivered |
+| **Phase 11** | Production Hardening + Bug Fixes | ✅ COMPLETE | ✅ 157 passed, 1 skipped |
 
 ---
 
@@ -404,4 +407,101 @@ baileys-sender/sender.js
 
 ---
 
-*Last updated: 2026-06-15 — BOT IS LIVE IN PRODUCTION. Phase 10 complete. Starting Phase 11 (hardening).*
+## 🐛 Phase 11 — Production Bug Fixes (2026-06-16)
+
+### Bug 1 — Duplicate topic flooding (FIXED)
+**Symptom:** All 5 posts were about the same Anthropic/White House story.  
+**Root cause:** SequenceMatcher threshold 0.75 too loose; no topic-level dedup.  
+**Fix:** Raised threshold to 0.85. Added keyword topic clustering: if 2+ keywords overlap with any article in the last 3h window → reject.  
+**Files:** `orchestrator/dedup/similarity.py`, `orchestrator/config.py`  
+**Commit:** `cfd2b87`
+
+### Bug 2 — OG images never found (PARTIALLY FIXED)
+**Symptom:** `[IMAGE] No OG image found` on every article.  
+**Root cause (diagnosed):**
+- TechCrunch / The Verge: Zero RSS media tags, JavaScript-rendered meta — no image possible via static scraping.
+- Wired / Google AI Blog: RSS `media_thumbnail` / `media_content` present with valid URLs.
+- OG HTTP extractor was using `newsbot/1.0` agent → 403/429 on most sites.
+
+**Fix applied:**
+- Rotating User-Agent pool (5 real browser UAs) in `og_image.py`
+- `_extract_rss_image()` in `rss.py` stores `media_thumbnail` / `media_content` as `article.rss_image_url`
+- `main.py` uses `rss_image_url` as fallback when HTTP OG fails
+- `models/article.py` — added `rss_image_url` field
+
+**Result:** Wired images now extracted (5/5 entries have `media_thumbnail`). Google AI Blog 4/5.  
+**Files:** `orchestrator/extractor/og_image.py`, `orchestrator/fetcher/rss.py`, `orchestrator/models/article.py`, `orchestrator/main.py`  
+**Commit:** `cfd2b87`
+
+### Bug 3 — Daily cap replaced with throttle (FIXED)
+**Symptom:** 5-post daily cap prevented posting after 5th article; hourly cron wasted.  
+**Root cause:** Hard cap was too blunt — missed new stories if 5 posts happened early.  
+**Fix:** Removed `max_posts_per_day` cap. Added 45-minute minimum inter-post throttle tracked via `posted_at` in Supabase.  
+**Files:** `orchestrator/config.py`, `orchestrator/main.py`  
+**Commit:** `cfd2b87`
+
+### Bug 4 — Image messages silently dropped by WhatsApp channel (FIXED)
+**Symptom:** `[SEND] ✅ Success!` logged but no message appeared in channel.  
+**Root cause:** WhatsApp `@newsletter` JIDs silently drop `sendMessage({ image: { url }, caption })`. URL-based image sends go through the standard chat API which newsletters reject server-side without error.  
+**Fix (v1):** Text-only for `@newsletter` JIDs — confirmed working.  
+**Fix (v2):** Download image to `Buffer` in Node.js, send as `{ image: buffer, caption }`. Buffer sends bypass the URL-based rejection path.  
+**Files:** `baileys-sender/sender.js`  
+**Commits:** `c6e5a4e` (text-only), `43c952c` (buffer download)
+
+### Bug 5 — LLM hallucination (FIXED)
+**Symptom:** Post contained invented events: *"USA's first World Cup win"*, *"New York Knicks championship"* — none in the article.  
+**Root cause:** RSS description was ~50 chars (teaser only). Groq model padded output with training data to fill the structured format.  
+**Fix:** Added `CRITICAL — ANTI-HALLUCINATION RULES` block at top of `SYSTEM_PROMPT`. Added `content_warning` injection when description < 150 chars.  
+**Files:** `orchestrator/llm/prompt.py`  
+**Commit:** `11210f3`
+
+### Bug 6 — 3+ hour gaps between posts (DIAGNOSED & FIXED)
+**Symptom:** Posts stopped from 9:15 AM → 12:20 PM despite hourly cron.  
+**Root cause (diagnosed):**
+1. Topic clustering 6h window blocked all articles during hot Anthropic news cycle.
+2. Zero logging when 0 candidates remained — silent exit with no gap explanation.
+
+**Evidence:** Simulated topic clustering showed 6h window aggressively blocking valid unrelated stories that shared common AI keywords (`anthropic`, `claude`, `model`).  
+**Fix:**
+- Reduced topic cluster window from 6h → 3h.
+- Added per-stage rejection counts to `[DEDUP L2]` log: `similarity=N, topic_cluster=N`.
+- Added detailed `[DONE] 0 candidates` log showing top 3 rejected titles when pipeline finds nothing.
+
+**Files:** `orchestrator/dedup/similarity.py`, `orchestrator/main.py`  
+**Commit:** `43c952c`
+
+---
+
+## 📊 Phase 11 Changelog
+
+| Date | Type | Change |
+|------|------|--------|
+| 2026-06-16 | FIX | Dedup threshold 0.75 → 0.85; topic cluster added (6h window) |
+| 2026-06-16 | FIX | OG image: rotating User-Agents, debug logging, 403/429 explicit handling |
+| 2026-06-16 | FIX | RSS image fallback: `media_thumbnail`, `media_content`, `enclosure` |
+| 2026-06-16 | FIX | 45-minute throttle replaces 5-post daily cap |
+| 2026-06-16 | FIX | Newsletter image: buffer download replaces URL-based send (silently dropped) |
+| 2026-06-16 | FIX | LLM hallucination: anti-hallucination rules + thin-content warning |
+| 2026-06-16 | FIX | Topic cluster window 6h → 3h (too aggressive in hot news cycles) |
+| 2026-06-16 | FIX | Zero-candidates logging: detailed reason + top 3 rejected titles |
+| 2026-06-16 | TEST | All 157 tests passing, 1 skipped |
+
+---
+
+## 🏁 Current Production State (2026-06-16)
+
+| Component | Status |
+|-----------|--------|
+| GitHub Actions cron | ✅ Hourly |
+| Throttle | ✅ 45-minute minimum gap |
+| Dedup (URL hash) | ✅ 48h window |
+| Dedup (similarity) | ✅ 0.85 threshold, 48h window |
+| Dedup (topic cluster) | ✅ 2-keyword overlap, 3h window |
+| OG image (HTTP) | ✅ Rotating UAs, 5 browser agents |
+| OG image (RSS fallback) | ✅ media_thumbnail + media_content |
+| Image send to channel | ✅ Buffer download → WhatsApp |
+| LLM anti-hallucination | ✅ Hard rules + thin-content warning |
+| Gap diagnostics | ✅ Rejection reason logged per run |
+| Test suite | ✅ 157 passed, 1 skipped |
+
+*Last updated: 2026-06-16 — Phase 11 complete. Bot hardened and live in production.*
