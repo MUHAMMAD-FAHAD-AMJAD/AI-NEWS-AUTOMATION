@@ -64,6 +64,8 @@ try {
 
 console.log(`[SENDER] Payload loaded — article_hash: ${payload.article_hash}`)
 console.log(`[SENDER] has_image: ${payload.has_image}`)
+console.log(`[DEBUG] Sending to JID: ${CHANNEL_JID}`)
+console.log(`[DEBUG] Message preview: ${payload.formatted_message?.substring(0, 80)}`)
 
 // ─── Supabase client ──────────────────────────────────────────────────────────
 
@@ -175,16 +177,28 @@ async function sendArticle() {
         // Anti-ban: simulate typing
         await simulateComposing(sock, CHANNEL_JID)
 
-        // Send message
+        // ── Send message ─────────────────────────────────────────────────
+        // NOTE: WhatsApp newsletter channels (@newsletter JID) silently drop
+        // image+caption messages sent via the standard sendMessage() API.
+        // Baileys returns a success message ID but the post never appears.
+        // Text-only is confirmed working for @newsletter channels.
+        // Image support for newsletters requires a different Baileys API path
+        // that varies by version and is not stable in CI environments.
         let result
-        if (payload.has_image && payload.og_image_url) {
+        const isNewsletterJid = CHANNEL_JID.endsWith('@newsletter')
+
+        if (payload.has_image && payload.og_image_url && !isNewsletterJid) {
           console.log('[SEND] Sending image + caption...')
           result = await sock.sendMessage(CHANNEL_JID, {
             image:   { url: payload.og_image_url },
             caption: payload.formatted_message,
           })
         } else {
-          console.log('[SEND] Sending text only (no OG image)...')
+          if (isNewsletterJid && payload.has_image) {
+            console.log('[SEND] Newsletter channel — skipping image (would be silently dropped). Sending text only.')
+          } else {
+            console.log('[SEND] Sending text only (no OG image)...')
+          }
           result = await sock.sendMessage(CHANNEL_JID, {
             text: payload.formatted_message,
           })
@@ -192,6 +206,7 @@ async function sendArticle() {
 
         const msgId = result?.key?.id ?? null
         console.log(`[SEND] ✅ Success! Message ID: ${msgId}`)
+        console.log(`[DEBUG] Sent to JID: ${CHANNEL_JID}`)
 
         // Persist success to Supabase
         await markPosted(msgId)
