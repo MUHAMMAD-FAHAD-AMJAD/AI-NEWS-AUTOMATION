@@ -18,6 +18,7 @@ Fixes applied 2026-06-16:
 - rss_image_url fallback is handled in main.py (not here)
 """
 
+import re
 import random
 import sys
 from typing import Optional
@@ -53,14 +54,23 @@ _TIMEOUT_SECONDS = 15
 
 
 def _get_headers() -> dict:
-    """Return request headers with a randomly chosen User-Agent."""
+    """Return full browser-like headers with a randomly chosen User-Agent.
+    
+    Full Sec-Fetch-* headers are required for some sites (e.g. MITTR, VentureBeat)
+    that serve different content based on whether the request looks like a real browser.
+    """
     return {
         "User-Agent": random.choice(_USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
         "Cache-Control": "no-cache",
-        "Connection": "close",
+        "Referer": "https://www.google.com/",
     }
 
 
@@ -119,12 +129,18 @@ async def extract_og_image(url: str) -> Optional[str]:
             print(f"[IMAGE] Non-200 ({resp.status_code}) from {domain} — no image", file=sys.stderr)
             return None
 
+        # ------------------------------------------------------------------ #
+        # Parse HTML for OG/Twitter image tags                                #
+        # Two-pass approach:                                                  #
+        #   Pass 1: BeautifulSoup with lxml (fast)                           #
+        #   Pass 2: Regex on raw HTML (lxml sometimes strips the non-standard #
+        #           `property` attribute from <meta> tags since it is an OGP  #
+        #           extension and not part of the HTML5 spec)                 #
+        # ------------------------------------------------------------------ #
         html = resp.text
-
-        # Parse HTML for OG/Twitter image tags
         soup = BeautifulSoup(html, "lxml")
 
-        # Log all meta tags found (for debugging — tag names only, not values)
+        # Log all og:/twitter: meta tags found by BS4 (debugging)
         meta_props = [
             t.get("property") or t.get("name")
             for t in soup.find_all("meta")
@@ -132,33 +148,69 @@ async def extract_og_image(url: str) -> Optional[str]:
         ]
         og_related = [p for p in meta_props if p and ("og:" in p or "twitter:" in p)]
         if og_related:
-            print(f"[IMAGE] Found meta tags: {og_related[:5]}")
+            print(f"[IMAGE] BS4 found meta tags: {og_related[:5]}")
         else:
-            print(f"[IMAGE] No og:/twitter: meta tags found at {domain}")
+            print(f"[IMAGE] BS4: no og:/twitter: meta tags found at {domain} — trying regex fallback")
 
-        # --- Priority 1: og:image ---
-        og_tag = soup.find("meta", property="og:image")
-        if og_tag:
-            og_url = og_tag.get("content", "").strip()
-            if og_url and og_url.startswith("http"):
-                print(f"[IMAGE] ✅ Found og:image at {domain}")
-                return og_url
+        def _extract_via_bs4() -> Optional[str]:
+            """BeautifulSoup pass: find og:image / twitter:image."""
+            # Priority 1: og:image
+            og_tag = soup.find("meta", property="og:image")
+            if og_tag:
+                u = og_tag.get("content", "").strip()
+                if u and u.startswith("http"):
+                    return u
+            # Priority 2: twitter:image
+            tw_tag = soup.find("meta", attrs={"name": "twitter:image"})
+            if tw_tag:
+                u = tw_tag.get("content", "").strip()
+                if u and u.startswith("http"):
+                    return u
+            # Priority 3: twitter:image:src
+            tw_src = soup.find("meta", attrs={"name": "twitter:image:src"})
+            if tw_src:
+                u = tw_src.get("content", "").strip()
+                if u and u.startswith("http"):
+                    return u
+            return None
 
-        # --- Priority 2: twitter:image ---
-        tw_tag = soup.find("meta", attrs={"name": "twitter:image"})
-        if tw_tag:
-            tw_url = tw_tag.get("content", "").strip()
-            if tw_url and tw_url.startswith("http"):
-                print(f"[IMAGE] ✅ Found twitter:image at {domain}")
-                return tw_url
+        def _extract_via_regex() -> Optional[str]:
+            """Regex pass: search raw HTML for og:image / twitter:image.
+            
+            Handles both attribute orderings:
+              <meta property="og:image" content="URL">
+              <meta content="URL" property="og:image">
+            lxml strips the non-standard `property` attribute in some HTML5
+            documents; regex bypasses the parser entirely.
+            """
+            patterns = [
+                # property first, then content
+                r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+                # content first, then property
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+                # twitter:image (name attr)
+                r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+            ]
+            for pat in patterns:
+                m = re.search(pat, html, re.IGNORECASE)
+                if m:
+                    u = m.group(1).strip()
+                    if u and u.startswith("http"):
+                        return u
+            return None
 
-        # --- Priority 3: twitter:image:src ---
-        tw_src_tag = soup.find("meta", attrs={"name": "twitter:image:src"})
-        if tw_src_tag:
-            tw_src_url = tw_src_tag.get("content", "").strip()
-            if tw_src_url and tw_src_url.startswith("http"):
-                print(f"[IMAGE] ✅ Found twitter:image:src at {domain}")
-                return tw_src_url
+        # Pass 1: BeautifulSoup
+        result = _extract_via_bs4()
+        if result:
+            print(f"[IMAGE] Found og:image via BS4 at {domain}")
+            return result
+
+        # Pass 2: Regex fallback (catches lxml property-stripping bug)
+        result = _extract_via_regex()
+        if result:
+            print(f"[IMAGE] Found og:image via regex fallback at {domain}")
+            return result
 
         print(f"[IMAGE] No valid image meta tag found at {domain}")
         return None
