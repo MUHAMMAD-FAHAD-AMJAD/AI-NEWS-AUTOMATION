@@ -32,6 +32,12 @@ import http from 'http'
 import pino from 'pino'
 import { Boom } from '@hapi/boom'
 
+// ─── Fallback image ───────────────────────────────────────────────────────────
+// Used when the article's OG image fails to download (403, 429, timeout, etc.).
+// Picsum Photos seeds are permanent — this URL always resolves to the same image.
+// Swap this constant at any time to use your own branded placeholder.
+const FALLBACK_IMAGE_URL = 'https://picsum.photos/seed/ainews/1200/630'
+
 // ─── Validate environment ─────────────────────────────────────────────────────
 
 const SUPABASE_URL  = process.env.SUPABASE_URL
@@ -240,33 +246,52 @@ async function sendArticle() {
         await simulateComposing(sock, CHANNEL_JID)
 
         // ── Send message ─────────────────────────────────────────────────
-        // Strategy:
-        //   1. If has_image + @newsletter JID: download image to buffer,
-        //      send as { image: buffer, caption }. Buffer sends work for
-        //      newsletters; URL-based sends are silently dropped by WA server.
-        //   2. If buffer download fails: fall back to text-only.
-        //   3. If no image: send text-only directly.
+        // 3-tier image delivery strategy:
+        //   Tier 1 — Article OG image: download to Buffer, send as
+        //            { image: buffer, caption }. Buffer sends work for
+        //            @newsletter JIDs; { url } sends are silently dropped
+        //            by WhatsApp's server for newsletter channels.
+        //   Tier 2 — Fallback placeholder: if article image download fails
+        //            (403, 429, timeout, etc.), download FALLBACK_IMAGE_URL
+        //            to Buffer and send with the same caption. The channel
+        //            always delivers a visual post — never degrades silently.
+        //   Tier 3 — Text-only: only reached if BOTH image downloads fail.
+        //            Guarantees the pipeline never hard-exits without sending.
         let result
-        const isNewsletterJid = CHANNEL_JID.endsWith('@newsletter')
 
         if (payload.has_image && payload.og_image_url) {
-          console.log(`[IMAGE] Downloading image buffer for channel post...`)
+          // ── Tier 1: article OG image ──────────────────────────────────
+          console.log('[IMAGE] Tier 1 — downloading article OG image...')
           const imgBuffer = await downloadImageBuffer(payload.og_image_url)
 
           if (imgBuffer && imgBuffer.length > 0) {
-            console.log('[SEND] Sending image (buffer) + caption...')
+            console.log('[SEND] Tier 1 success — sending article image + caption.')
             result = await sock.sendMessage(CHANNEL_JID, {
               image:   imgBuffer,
               caption: payload.formatted_message,
             })
           } else {
-            console.log('[SEND] Image download failed — falling back to text only.')
-            result = await sock.sendMessage(CHANNEL_JID, {
-              text: payload.formatted_message,
-            })
+            // ── Tier 2: generic placeholder image ────────────────────────
+            console.log('[IMAGE] Tier 1 failed — trying Tier 2 placeholder image...')
+            const fallbackBuffer = await downloadImageBuffer(FALLBACK_IMAGE_URL)
+
+            if (fallbackBuffer && fallbackBuffer.length > 0) {
+              console.log('[SEND] Tier 2 success — sending placeholder image + caption.')
+              result = await sock.sendMessage(CHANNEL_JID, {
+                image:   fallbackBuffer,
+                caption: payload.formatted_message,
+              })
+            } else {
+              // ── Tier 3: text-only last resort ──────────────────────────
+              console.log('[SEND] Tier 2 failed — falling back to text-only (Tier 3).')
+              result = await sock.sendMessage(CHANNEL_JID, {
+                text: payload.formatted_message,
+              })
+            }
           }
         } else {
-          console.log('[SEND] Sending text only (no image available)...')
+          // No image in payload — go straight to Tier 3
+          console.log('[SEND] No image in payload — sending text only.')
           result = await sock.sendMessage(CHANNEL_JID, {
             text: payload.formatted_message,
           })

@@ -3,9 +3,9 @@ orchestrator/llm/summarizer.py
 --------------------------------
 LLM fallback chain orchestrator — the single entry point for summarization.
 
-Provider order (per 06-IMPLEMENTATION-PLAN.md §5.4):
-  1. Groq     (llama-3.3-70b-versatile)
-  2. Mistral  (mistral-small-latest)
+Provider order:
+  1. Mistral  (mistral-small-latest)          ← PRIMARY
+  2. Groq     (llama-3.3-70b-versatile)       ← SECONDARY
   3. OpenRouter (llama-3.3-70b-instruct:free → mistral-small-3.2-24b:free)
   4. Gemini   (gemini-1.5-flash)
   5. Raw      (always succeeds — no LLM)
@@ -70,12 +70,12 @@ async def summarize_with_fallback(
     # Each entry is a callable that returns a coroutine when called
     providers = [
         (
-            lambda: groq_provider.summarize(article, groq_api_key),
-            "groq",
-        ),
-        (
             lambda: mistral_provider.summarize(article, mistral_api_key),
             "mistral",
+        ),
+        (
+            lambda: groq_provider.summarize(article, groq_api_key),
+            "groq",
         ),
         (
             lambda: openrouter_provider.summarize(article, openrouter_api_key),

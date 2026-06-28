@@ -47,14 +47,14 @@ def is_url_duplicate(article: Article, supabase: Client) -> bool:
         )
         return len(result.data) > 0
     except Exception as e:
-        # If DB check fails, conservatively treat as NOT duplicate
-        # (better to re-process than to silently skip a new article)
+        # Fail-safe: if DB is unreachable, treat as duplicate.
+        # A network glitch must never accidentally post an unverified article.
         print(
-            f"[WARN] [dedup/hash] DB check failed for {article.hash[:8]}: "
-            f"{type(e).__name__}: {e}",
+            f"[DEDUP L1] DB error for {article.hash[:8]}: "
+            f"{type(e).__name__} — treating as duplicate (fail-safe)",
             file=sys.stderr,
         )
-        return False
+        return True
 
 
 def filter_url_duplicates(

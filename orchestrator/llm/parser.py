@@ -1,123 +1,118 @@
 """
 orchestrator/llm/parser.py
 ----------------------------
-LLM response parser — converts labeled text output into SummaryResult.
+LLM response parser — converts enterprise intelligence brief output into SummaryResult.
 
-Uses the EXACT parser logic from 04-MESSAGE-FORMAT.md Section 6.
+Expected LLM output structure:
+    METRIC BRIEF // [CATEGORY]
 
-Algorithm:
-  - Split response by newlines
-  - For each line: check if it starts with a known FIELD: label
-  - If yes: save previous field, start collecting new field
-  - If no:  accumulate continuation lines into current field
-  - After loop: save last field
-  - Join accumulated lines with single space
-  - Strip whitespace from all values
-  - Validate: HEADLINE and PARAGRAPH_1 must be non-empty → else ValueError
-  - point_4: if value is 'N/A' or empty → set to None
+    THE UPDATE
+    [multi-line narrative prose]
+
+    STRATEGIC IMPLICATIONS
+    [multi-line narrative prose]
+
+Parsing algorithm:
+  1. Scan lines for the "METRIC BRIEF //" prefix → extract category token
+  2. Scan for "THE UPDATE" header line → collect all following lines as update_block
+     until "STRATEGIC IMPLICATIONS" is encountered or input ends
+  3. Scan for "STRATEGIC IMPLICATIONS" header line → collect all following lines
+     as strategic_implications until input ends
+  4. Strip leading/trailing whitespace from all extracted blocks
+  5. Raise ValueError if update_block is empty — triggers LLM fallback chain
 
 SECURITY: ValueError message includes only first 200 chars of response.
           Never log full LLM response content.
 """
 
-import sys
+import re
 from typing import Optional
 
 from orchestrator.models.summary import SummaryResult
 
 
-# All valid labeled fields in the expected LLM output format
-_FIELDS = [
-    "HEADLINE",
-    "PARAGRAPH_1",
-    "PARAGRAPH_2",
-    "PARAGRAPH_3",
-    "POINT_1",
-    "POINT_2",
-    "POINT_3",
-    "POINT_4",
-    "POINT_5",
-    "CONCLUSION",
-]
-
-# Values that indicate point_4 has no data → stored as None
-_POINT_4_NULL_VALUES = {"n/a", "none", "not available", "scale not yet disclosed",
-                        "not disclosed", "unknown", ""}
+# Section header patterns — case-insensitive to handle minor LLM formatting variance
+_METRIC_BRIEF_PREFIX = re.compile(r"METRIC\s+BRIEF\s*//\s*(.+)", re.IGNORECASE)
+_THE_UPDATE_HEADER   = re.compile(r"^\s*THE\s+UPDATE\s*$", re.IGNORECASE)
+_STRAT_IMPL_HEADER   = re.compile(r"^\s*STRATEGIC\s+IMPLICATIONS\s*$", re.IGNORECASE)
 
 
 def parse_llm_response(response_text: str) -> SummaryResult:
     """
-    Parse labeled LLM output into SummaryResult.
-    Handles minor formatting variations gracefully.
+    Parse enterprise intelligence brief LLM output into SummaryResult.
+
+    Extracts category, THE UPDATE block, and STRATEGIC IMPLICATIONS block
+    from the structured two-section narrative format.
 
     Args:
         response_text: Raw text output from an LLM API call.
 
     Returns:
-        SummaryResult: Populated with all parsed fields.
+        SummaryResult: Populated with category, update_block, strategic_implications.
 
     Raises:
-        ValueError: If HEADLINE or PARAGRAPH_1 are missing/empty.
+        ValueError: If THE UPDATE block is empty or missing.
                     Message includes only first 200 chars of response.
     """
-    # Initialize all fields to empty string
-    fields: dict[str, str] = {f: "" for f in _FIELDS}
+    category: str = "INTELLIGENCE BRIEF"
+    update_lines: list[str] = []
+    strat_lines: list[str] = []
 
-    current_field: Optional[str] = None
-    current_lines: list[str] = []
+    # Parsing state machine
+    # States: "seeking_category", "seeking_update", "in_update", "in_strat"
+    state = "seeking_category"
 
     for line in response_text.strip().split("\n"):
         stripped = line.strip()
-        matched = False
 
-        for field in _FIELDS:
-            if stripped.startswith(f"{field}:"):
-                # Save the previously accumulated field
-                if current_field is not None:
-                    fields[current_field] = " ".join(current_lines).strip()
+        # ── Always check for METRIC BRIEF // line ─────────────────────
+        metric_match = _METRIC_BRIEF_PREFIX.match(stripped)
+        if metric_match:
+            raw_category = metric_match.group(1).strip()
+            # Clean trailing punctuation or stray characters
+            category = raw_category.rstrip(".:;,").strip().upper()
+            if state == "seeking_category":
+                state = "seeking_update"
+            continue
 
-                # Start new field
-                current_field = field
-                value_part = stripped[len(field) + 1:].strip()
-                current_lines = [value_part] if value_part else []
-                matched = True
+        # ── State: seeking THE UPDATE header ──────────────────────────
+        if state in ("seeking_category", "seeking_update"):
+            if _THE_UPDATE_HEADER.match(stripped):
+                state = "in_update"
+            continue
+
+        # ── State: collecting THE UPDATE lines ────────────────────────
+        if state == "in_update":
+            if _STRAT_IMPL_HEADER.match(stripped):
+                state = "in_strat"
+                continue
+            # Also handle if model wrote "THE UPDATE" again inline — skip it
+            if _THE_UPDATE_HEADER.match(stripped):
+                continue
+            update_lines.append(line)
+            continue
+
+        # ── State: collecting STRATEGIC IMPLICATIONS lines ─────────────
+        if state == "in_strat":
+            # Stop if model appended anything after the section (rare)
+            if _METRIC_BRIEF_PREFIX.match(stripped):
                 break
+            strat_lines.append(line)
+            continue
 
-        if not matched and current_field is not None and stripped:
-            # Continuation line — accumulate into current field
-            current_lines.append(stripped)
+    # ── Assemble blocks ────────────────────────────────────────────────
+    update_block = "\n".join(update_lines).strip()
+    strategic_implications = "\n".join(strat_lines).strip()
 
-    # Save the last field
-    if current_field is not None:
-        fields[current_field] = " ".join(current_lines).strip()
-
-    # Strip whitespace from all values
-    fields = {k: v.strip() for k, v in fields.items()}
-
-    # Validate required fields
-    if not fields["HEADLINE"] or not fields["PARAGRAPH_1"]:
-        # Only expose first 200 chars in error — never log full response
+    # ── Validate required field ────────────────────────────────────────
+    if not update_block:
         raise ValueError(
-            f"LLM response missing required fields (HEADLINE or PARAGRAPH_1). "
+            f"LLM response missing required 'THE UPDATE' content. "
             f"Response preview: {response_text[:200]!r}"
         )
 
-    # point_4: None if no quantitative data
-    point_4_raw = fields["POINT_4"].lower().strip()
-    point_4_value: Optional[str] = (
-        None if point_4_raw in _POINT_4_NULL_VALUES
-        else fields["POINT_4"]
-    )
-
     return SummaryResult(
-        headline=fields["HEADLINE"].upper(),
-        paragraph_1=fields["PARAGRAPH_1"],
-        paragraph_2=fields["PARAGRAPH_2"],
-        paragraph_3=fields["PARAGRAPH_3"],
-        point_1=fields["POINT_1"],
-        point_2=fields["POINT_2"],
-        point_3=fields["POINT_3"],
-        point_4=point_4_value,
-        point_5=fields["POINT_5"],
-        conclusion=fields["CONCLUSION"],
+        category=category,
+        update_block=update_block,
+        strategic_implications=strategic_implications,
     )
