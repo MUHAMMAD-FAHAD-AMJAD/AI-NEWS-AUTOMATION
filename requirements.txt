@@ -1,13 +1,15 @@
 # AI News Bot — Python dependencies
-# Pinned versions verified conflict-free for Python 3.11 / ubuntu-latest
+# All versions pinned to exact versions resolved by ubuntu-latest / Python 3.11
+# to eliminate pip resolver backtracking on every Actions run.
 #
-# Key conflicts resolved:
-#   supabase 2.4.0 required httpx<0.26 → upgraded to >=2.7.0 (httpx>=0.24.1, no upper bound)
-#   python-dateutil==2.9.0 rejected by mistralai → use >=2.9.0.post0
-#   httpx>=0.27.0 needed by mistralai 1.0.0 and openai 1.35.0
+# Version sources (confirmed from GitHub Actions run #119):
+#   supabase==2.16.0         pinned run #118 (was >=2.7.0,<3.0 — 30+ backtracks)
+#   grpcio-status==1.62.3    pinned run #119 (was >=1.33.2,<2.0 — 30+ backtracks)
+#   pydantic==2.8.2          pinned run #119 (tried 2.13.4, settled 2.8.2)
+#   httpx==0.27.2            pinned run #119 (tried 0.28.1, settled 0.27.2)
 
 feedparser==6.0.11
-httpx>=0.27.0,<1.0
+httpx==0.27.2
 beautifulsoup4==4.12.3
 lxml==5.2.2
 supabase==2.16.0
@@ -15,7 +17,9 @@ openai==1.35.0
 mistralai==1.0.0
 google-generativeai==0.7.0
 python-dotenv==1.0.1
-python-dateutil>=2.9.0.post0,<3.0
+python-dateutil==2.9.0.post0
 pytest==8.2.2
 pytest-asyncio==0.23.7
 pytest-mock==3.15.1
+grpcio-status==1.62.3
+pydantic==2.8.2
